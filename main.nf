@@ -125,6 +125,10 @@ if (!params.star_index && (!params.fasta && !params.gtf)) exit 1, "Either specif
 
 if (!params.databases) exit 1, "Database path for fusion-report has to be specified!"
 
+if ( ! params.xenome_ref ) {
+    exit 1, "Parameter ERROR: absolute path to xenome transcriptome index files with index file name prefix included must be specified."
+}
+
 if (params.arriba) {
     running_tools.add("Arriba")
     reference.arriba = Channel.value(file(params.arriba_ref)).ifEmpty{exit 1, "Arriba reference directory not found!"}
@@ -156,6 +160,10 @@ if (params.star_fusion) {
     running_tools.add("STAR-Fusion")
     reference.star_fusion = Channel.value(file(params.star_fusion_ref)).ifEmpty{exit 1, "Star-Fusion reference directory not found!"}
 }
+
+
+
+
 
 if (params.squid) running_tools.add("Squid")
 
@@ -313,10 +321,109 @@ ch_star_index = ch_star_index.dump(tag:'ch_star_index')
 */
 
 /*
+ * Create a channel for input read files
+ */
+if(params.readPaths) {
+    if(params.single_end) {
+        Channel.from(params.readPaths)
+            .map { row -> [ row[0], [file(row[1][0])]] }
+            .ifEmpty{exit 1, "params.readPaths was empty - no input files supplied" }
+            .into{read_files_xenome}
+    } else {
+        Channel.from(params.readPaths)
+            .map { row -> [ row[0], [file(row[1][0]), file(row[1][1])]] }
+            .ifEmpty{exit 1, "params.readPaths was empty - no input files supplied" }
+            .into{read_files_xenome}
+    }
+} else {
+    Channel.fromFilePairs( params.reads, size: params.single_end ? 1 : 2 )
+        .ifEmpty{exit 1, "Cannot find any reads matching: ${params.reads}\nNB: Path needs to be enclosed in quotes!\nIf this is single-end data, please specify --single_end on the command line." }
+        .into{read_files_xenome}
+}
+
+/*
+ * Xenome_SE
+ */
+process xenome_classification_se {
+	tag "${sample}"
+	label 'process_high'
+	label 'xenome'
+
+	publishDir "${params.outdir}", pattern: "*.txt", mode: 'copy'
+
+	input:
+	set val(sample), file(reads) from read_files_xenome
+
+	output:
+	tuple val(sample), file("human*{1,2}.fastq") into xenome_classified_fastq
+	file "*.txt"
+	tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
+
+	when: params.single_end || params.debug
+
+	script:
+	"""
+	xenome classify -T 12 -P ${params.xenome_ref} --host-name mouse --graft-name human -i ${trimmed[0]} -i ${trimmed[1]} > ${sample}_xenome_stats.txt
+
+	rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
+
+	"""
+}
+
+/*
+ * Xenome_PE
+ */
+process xenome_classification_pe {
+	tag "${sample}"
+	label 'process_high'
+	label 'xenome'
+
+	publishDir "${params.outdir}", pattern: "*.txt", mode: 'copy'
+
+	input:
+	//tuple sampleID, file(trimmed) from trimmed_fastq
+	set val(sample), file(reads) from read_files_xenome
+
+	output:
+	tuple val(sample), file("human*{1,2}.fastq") into xenome_classified_fastq
+	file "*.txt"
+	tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
+
+	when: !params.single_end || params.debug
+
+	script:
+	"""
+	xenome classify -T 12 -P ${params.xenome_ref} --pairs --host-name mouse --graft-name human -i ${reads[0]} -i ${reads[1]} > ${sample}_xenome_stats.txt
+
+	rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
+
+	"""
+}
+
+/*
+ * Create a channel for input xenome files
+ */
+if(params.readPaths) {
+    if(params.single_end) {
+        Channel.from(xenome_classified_fastq)
+            .map { row -> [ row[0], [file(row[1][0])]] }
+            .ifEmpty{exit 1, "xenome_classified_fastq was empty - no input files supplied" }
+            .into{read_files_arriba; read_files_ericscript; ch_read_files_fastqc; read_files_fusion_inspector; read_files_fusioncatcher; read_files_multiqc; read_files_pizzly; read_files_squid; read_files_star_fusion; read_files_summary}
+    } else {
+        Channel.from(xenome_classified_fastq)
+            .map { row -> [ row[0], [file(row[1][0]), file(row[1][1])]] }
+            .ifEmpty{exit 1, "xenome_classified_fastq was empty - no input files supplied" }
+            .into{read_files_arriba; read_files_ericscript; ch_read_files_fastqc; read_files_fusion_inspector; read_files_fusioncatcher; read_files_multiqc; read_files_pizzly; read_files_squid; read_files_star_fusion; read_files_summary}
+    }
+}
+
+
+
+/*
  * Arriba
  */
 process arriba {
-    tag "${sample}"
+	tag "${sample}"
     label 'process_medium'
 
     publishDir "${params.outdir}/tools/Arriba/${sample}", mode: 'copy'
