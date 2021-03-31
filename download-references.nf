@@ -151,10 +151,10 @@ process download_fusioncatcher {
 
     script:
     """
-    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v98.tar.gz.aa
-    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v98.tar.gz.ab
-    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v98.tar.gz.ac
-    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v98.tar.gz.ad
+    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v102.tar.gz.aa
+    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v102.tar.gz.ab
+    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v102.tar.gz.ac
+    wget -N http://sourceforge.net/projects/fusioncatcher/files/data/human_v102.tar.gz.ad
     cat human_v98.tar.gz.* | tar xz
     rm human_v98.tar*
     """
