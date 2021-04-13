@@ -63,7 +63,7 @@ def helpMessage() {
       --transcript [file]             Path to transcript
 
     Options:
-      --read_length [int]             Length of the reads. Default: 100
+      --read_length [int]             Length of the reads. Default: 75
       --single_end [bool]             Specifies that the input is single-end reads
 
     Other Options:
@@ -120,6 +120,9 @@ params.transcript = params.genome ? params.genomes[params.genome].transcript ?: 
 ch_fasta = Channel.value(file(params.fasta)).ifEmpty{exit 1, "Fasta file not found: ${params.fasta}"}
 ch_gtf = Channel.value(file(params.gtf)).ifEmpty{exit 1, "GTF annotation file not found: ${params.gtf}"}
 ch_transcript = Channel.value(file(params.transcript)).ifEmpty{exit 1, "Transcript file not found: ${params.transcript}"}
+
+
+
 
 if (!params.star_index && (!params.fasta && !params.gtf)) exit 1, "Either specify STAR-INDEX or Fasta and GTF!"
 
@@ -197,17 +200,17 @@ if(params.readPaths) {
         Channel.from(params.readPaths)
             .map { row -> [ row[0], [file(row[1][0])]] }
             .ifEmpty{exit 1, "params.readPaths was empty - no input files supplied" }
-            .into{read_files_arriba; read_files_ericscript; ch_read_files_fastqc; read_files_fusion_inspector; read_files_fusioncatcher; read_files_multiqc; read_files_pizzly; read_files_squid; read_files_star_fusion; read_files_summary}
+            .into{ch_read_files_fastqc;read_files_multiqc; read_files_summary}
     } else {
         Channel.from(params.readPaths)
             .map { row -> [ row[0], [file(row[1][0]), file(row[1][1])]] }
             .ifEmpty{exit 1, "params.readPaths was empty - no input files supplied" }
-            .into{read_files_arriba; read_files_ericscript; ch_read_files_fastqc; read_files_fusion_inspector; read_files_fusioncatcher; read_files_multiqc; read_files_pizzly; read_files_squid; read_files_star_fusion; read_files_summary}
+            .into{ch_read_files_fastqc;read_files_multiqc; read_files_summary}
     }
 } else {
     Channel.fromFilePairs( params.reads, size: params.single_end ? 1 : 2 )
         .ifEmpty{exit 1, "Cannot find any reads matching: ${params.reads}\nNB: Path needs to be enclosed in quotes!\nIf this is single-end data, please specify --single_end on the command line." }
-        .into{read_files_arriba; read_files_ericscript; ch_read_files_fastqc; read_files_fusion_inspector; read_files_fusioncatcher; read_files_multiqc; read_files_pizzly; read_files_squid; read_files_star_fusion; read_files_summary}
+        .into{ch_read_files_fastqc;read_files_multiqc; read_files_summary}
 }
 
 /*
@@ -328,96 +331,112 @@ if(params.readPaths) {
         Channel.from(params.readPaths)
             .map { row -> [ row[0], [file(row[1][0])]] }
             .ifEmpty{exit 1, "params.readPaths was empty - no input files supplied" }
-            .into{read_files_xenome}
+            .set{read_files_xenome_se}
     } else {
         Channel.from(params.readPaths)
             .map { row -> [ row[0], [file(row[1][0]), file(row[1][1])]] }
             .ifEmpty{exit 1, "params.readPaths was empty - no input files supplied" }
-            .into{read_files_xenome}
+            .set{read_files_xenome_pe}
     }
 } else {
     Channel.fromFilePairs( params.reads, size: params.single_end ? 1 : 2 )
         .ifEmpty{exit 1, "Cannot find any reads matching: ${params.reads}\nNB: Path needs to be enclosed in quotes!\nIf this is single-end data, please specify --single_end on the command line." }
-        .into{read_files_xenome}
+        .set{read_files_xenome_pe}
 }
 
 /*
  * Xenome_SE
  */
-process xenome_classification_se {
-	tag "${sample}"
-	label 'process_high'
-	label 'xenome'
+ 
+if (params.single_end) {
 
-	publishDir "${params.outdir}", pattern: "*.txt", mode: 'copy'
+	process xenome_classification_se {
+		tag "${sample}"
+		label 'process_high'
 
-	input:
-	set val(sample), file(reads) from read_files_xenome
+		publishDir "${params.outdir}/Reports/${sample}", pattern: "*.txt", mode: 'copy'
 
-	output:
-	tuple val(sample), file("human*{1,2}.fastq") into xenome_classified_fastq
-	file "*.txt"
-	tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
+		input:
+		set val(sample), file(reads) from read_files_xenome_se
 
-	when: params.single_end || params.debug
+		output:
+		tuple val(sample), file("human*{1,2}.fastq") into xenome_classified_fastq
+		file "*.txt"
+		tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
 
-	script:
-	"""
-	xenome classify -T 12 -P ${params.xenome_ref} --host-name mouse --graft-name human -i ${trimmed[0]} -i ${trimmed[1]} > ${sample}_xenome_stats.txt
+		script:
+		"""
+		/xenome-1.0.1-r/xenome classify -T 12 -P ${params.xenome_ref} --host-name mouse --graft-name human -i ${trimmed[0]} -i ${trimmed[1]} > ${sample}_xenome_stats.txt
 
-	rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
+		rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
 
-	"""
+		"""
+	}
+	
+	
+	process fastq_sort_se {
+		tag "${sample}"
+		label 'process_medium'
+		publishDir "${params.outdir}/fastqs", pattern: "*.gz", mode: 'copy'
+		input:
+			set val(sample), file(trimmed_hsa) from xenome_classified_fastq
+
+		output:
+			tuple val(sample), file("*sorted_human_{1,2}.fastq.gz") into sorted_xenome_classified_fastq
+		script:
+		"""
+		fastq-sort --id ${trimmed_hsa[0]} > ${sample}_sorted_human_1.fastq
+		
+		gzip ${sample}_sorted_human_1.fastq
+
+		"""
+	}
+	sorted_xenome_classified_fastq.into{read_files_arriba; read_files_ericscript; read_files_fusion_inspector; read_files_fusioncatcher; read_files_pizzly; read_files_squid; read_files_star_fusion}
 }
 
 /*
  * Xenome_PE
  */
-process xenome_classification_pe {
-	tag "${sample}"
-	label 'process_high'
-	label 'xenome'
+if (!params.single_end) {
+	process xenome_classification_pe {
+		tag "${sample}"
+		label 'process_high'
+		publishDir "${params.outdir}/Reports/${sample}", pattern: "*.txt", mode: 'copy'
+		input:
+			set val(sample), file(reads) from read_files_xenome_pe
 
-	publishDir "${params.outdir}", pattern: "*.txt", mode: 'copy'
+		output:
+			tuple val(sample), file("human*{1,2}.fastq") into xenome_classified_fastq
+			file "*.txt"
+			tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
+		script:
+		"""
+		/xenome-1.0.1-r/xenome classify -T 12 -P ${params.xenome_ref} --pairs --host-name mouse --graft-name human -i ${reads[0]} -i ${reads[1]} > ${sample}_xenome_stats.txt
+		rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
+		"""
+	}
 
-	input:
-	//tuple sampleID, file(trimmed) from trimmed_fastq
-	set val(sample), file(reads) from read_files_xenome
-
-	output:
-	tuple val(sample), file("human*{1,2}.fastq") into xenome_classified_fastq
-	file "*.txt"
-	tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
-
-	when: !params.single_end || params.debug
-
-	script:
-	"""
-	xenome classify -T 12 -P ${params.xenome_ref} --pairs --host-name mouse --graft-name human -i ${reads[0]} -i ${reads[1]} > ${sample}_xenome_stats.txt
-
-	rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
-
-	"""
-}
-
-/*
- * Create a channel for input xenome files
- */
-if(params.readPaths) {
-    if(params.single_end) {
-        Channel.from(xenome_classified_fastq)
-            .map { row -> [ row[0], [file(row[1][0])]] }
-            .ifEmpty{exit 1, "xenome_classified_fastq was empty - no input files supplied" }
-            .into{read_files_arriba; read_files_ericscript; ch_read_files_fastqc; read_files_fusion_inspector; read_files_fusioncatcher; read_files_multiqc; read_files_pizzly; read_files_squid; read_files_star_fusion; read_files_summary}
-    } else {
-        Channel.from(xenome_classified_fastq)
-            .map { row -> [ row[0], [file(row[1][0]), file(row[1][1])]] }
-            .ifEmpty{exit 1, "xenome_classified_fastq was empty - no input files supplied" }
-            .into{read_files_arriba; read_files_ericscript; ch_read_files_fastqc; read_files_fusion_inspector; read_files_fusioncatcher; read_files_multiqc; read_files_pizzly; read_files_squid; read_files_star_fusion; read_files_summary}
-    }
+	process fastq_sort_pe {
+		tag "${sample}"
+		label 'process_medium'
+		publishDir "${params.outdir}/fastqs", pattern: "*.gz", mode: 'copy'
+		input:
+			set val(sample), file(trimmed_hsa) from xenome_classified_fastq
+		output:
+			tuple val(sample), file("*sorted_human_{1,2}.fastq.gz") into sorted_xenome_classified_fastq
+		script:
+		"""
+		fastq-sort --id ${trimmed_hsa[0]} > ${sample}_sorted_human_1.fastq
+		fastq-sort --id ${trimmed_hsa[1]} > ${sample}_sorted_human_2.fastq
+		gzip ${sample}_sorted_human_1.fastq
+		gzip ${sample}_sorted_human_2.fastq
+		"""
+	}
+	sorted_xenome_classified_fastq.into{read_files_arriba; read_files_ericscript; read_files_fusion_inspector; read_files_fusioncatcher; read_files_pizzly; read_files_squid; read_files_star_fusion}
 }
 
 
+	
 
 /*
  * Arriba
@@ -1068,6 +1087,9 @@ workflow.onComplete {
     }
 
 }
+
+
+
 
 def nfcoreHeader() {
     // Log colors ANSI codes
