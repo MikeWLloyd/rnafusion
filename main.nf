@@ -353,7 +353,7 @@ if (params.single_end) {
 	process xenome_classification_se {
 		tag "${sample}"
 		label 'process_high'
-
+		stageInMode 'copy'
 		publishDir "${params.outdir}/Reports/${sample}", pattern: "*.txt", mode: 'copy'
 
 		input:
@@ -364,13 +364,20 @@ if (params.single_end) {
 		file "*.txt"
 		tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
 
-		script:
-		"""
-		/xenome-1.0.1-r/xenome classify -T 12 -P ${params.xenome_ref} --host-name mouse --graft-name human -i ${trimmed[0]} -i ${trimmed[1]} > ${sample}_xenome_stats.txt
+		shell:
+		'''
+		
+		if [[ !{reads[0]} =~ ".gz" ]]; 
+		then
+			gunzip !{reads[0]}
+		fi
+		
+		read_1=`basename !{reads[0]} .gz`
 
+		/xenome-1.0.1-r/xenome classify -T 12 -P !{params.xenome_ref} --pairs --host-name mouse --graft-name human -i $read_1 > !{sample}_xenome_stats.txt
 		rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
-
-		"""
+		'''
+		
 	}
 	
 	
@@ -401,6 +408,7 @@ if (!params.single_end) {
 	process xenome_classification_pe {
 		tag "${sample}"
 		label 'process_high'
+		stageInMode 'copy'
 		publishDir "${params.outdir}/Reports/${sample}", pattern: "*.txt", mode: 'copy'
 		input:
 			set val(sample), file(reads) from read_files_xenome_pe
@@ -409,11 +417,24 @@ if (!params.single_end) {
 			tuple val(sample), file("human*{1,2}.fastq") into xenome_classified_fastq
 			file "*.txt"
 			tuple val(sample), file("*.txt") into xenome_stats, xenome_stats2, dummy_xenome_stats
-		script:
-		"""
-		/xenome-1.0.1-r/xenome classify -T 12 -P ${params.xenome_ref} --pairs --host-name mouse --graft-name human -i ${reads[0]} -i ${reads[1]} > ${sample}_xenome_stats.txt
+		shell:
+		'''
+		if [[ !{reads[0]} =~ ".gz" ]]; 
+		then
+			gunzip !{reads[0]}
+		fi
+		
+		if [[ !{reads[1]} =~ ".gz" ]]; 
+		then
+			gunzip !{reads[1]}
+		fi
+		
+		read_1=`basename !{reads[0]} .gz`
+		read_2=`basename !{reads[1]} .gz`
+		
+		/xenome-1.0.1-r/xenome classify -T 12 -P !{params.xenome_ref} --pairs --host-name mouse --graft-name human -i $read_1 -i $read_2 > !{sample}_xenome_stats.txt
 		rm -rf *both*fastq* *mouse*fastq* *neither*fastq* *ambiguous*fastq*
-		"""
+		'''
 	}
 
 	process fastq_sort_pe {
