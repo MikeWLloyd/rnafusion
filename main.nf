@@ -354,7 +354,7 @@ if (params.single_end) {
 		tag "${sample}"
 		label 'process_high'
 		stageInMode 'copy'
-		publishDir "${params.outdir}/Reports/${sample}", pattern: "*.txt", mode: 'copy'
+		publishDir "${params.outdir}/${sample}", pattern: "*.txt", mode: 'copy'
 
 		input:
 		set val(sample), file(reads) from read_files_xenome_se
@@ -409,7 +409,7 @@ if (!params.single_end) {
 		tag "${sample}"
 		label 'process_high'
 		stageInMode 'copy'
-		publishDir "${params.outdir}/Reports/${sample}", pattern: "*.txt", mode: 'copy'
+		publishDir "${params.outdir}/${sample}", pattern: "*.txt", mode: 'copy'
 		input:
 			set val(sample), file(reads) from read_files_xenome_pe
 
@@ -527,11 +527,15 @@ arriba_visualization = arriba_bam.join(arriba_tsv)
 /*
  * STAR-Fusion
  */
+ 
+//publishDir "${params.outdir}/tools/Star-Fusion/${sample}", mode: 'copy'
+// this was the original output pathing. 
+ 
 process star_fusion {
     tag "${sample}"
     label 'process_high'
 
-    publishDir "${params.outdir}/tools/Star-Fusion/${sample}", mode: 'copy'
+    publishDir "${params.outdir}/${sample}", mode: 'copy'
 
     input:
         set val(sample), file(reads) from read_files_star_fusion
@@ -1100,12 +1104,22 @@ workflow.onComplete {
         log.info "-${c_green}Number of successfully ran process(es) : ${workflow.stats.succeedCount} ${c_reset}-"
     }
 
+
+	if (workflow.success && params.preserve_work == "no") {
+
+		workflow.workDir.deleteDir()
+
+	}
+
     if (workflow.success) {
         log.info "-${c_purple}[nf-core/rnafusion]${c_green} Pipeline completed successfully${c_reset}-"
+                
     } else {
         checkHostname()
         log.info "-${c_purple}[nf-core/rnafusion]${c_red} Pipeline completed with errors${c_reset}-"
     }
+
+
 
 }
 
