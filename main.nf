@@ -354,7 +354,7 @@ if (params.single_end) {
 		tag "${sample}"
 		label 'process_high'
 		stageInMode 'copy'
-		publishDir "${params.outdir}/${sample}", pattern: "*.txt", mode: 'copy'
+		publishDir "${params.outdir}", pattern: "*.txt", mode: 'copy'
 
 		input:
 		set val(sample), file(reads) from read_files_xenome_se
@@ -380,11 +380,11 @@ if (params.single_end) {
 		
 	}
 	
-	
+	//publishDir "${params.outdir}/fastqs", pattern: "*.gz", mode: 'copy'
 	process fastq_sort_se {
 		tag "${sample}"
 		label 'process_medium'
-		publishDir "${params.outdir}/fastqs", pattern: "*.gz", mode: 'copy'
+		
 		input:
 			set val(sample), file(trimmed_hsa) from xenome_classified_fastq
 
@@ -409,7 +409,7 @@ if (!params.single_end) {
 		tag "${sample}"
 		label 'process_high'
 		stageInMode 'copy'
-		publishDir "${params.outdir}/${sample}", pattern: "*.txt", mode: 'copy'
+		publishDir "${params.outdir}", pattern: "*.txt", mode: 'copy'
 		input:
 			set val(sample), file(reads) from read_files_xenome_pe
 
@@ -437,10 +437,13 @@ if (!params.single_end) {
 		'''
 	}
 
+	
+	//publishDir "${params.outdir}/fastqs", pattern: "*.gz", mode: 'copy'
+
 	process fastq_sort_pe {
 		tag "${sample}"
 		label 'process_medium'
-		publishDir "${params.outdir}/fastqs", pattern: "*.gz", mode: 'copy'
+		
 		input:
 			set val(sample), file(trimmed_hsa) from xenome_classified_fastq
 		output:
@@ -535,7 +538,7 @@ process star_fusion {
     tag "${sample}"
     label 'process_high'
 
-    publishDir "${params.outdir}/${sample}", mode: 'copy'
+    publishDir "${params.outdir}", mode: 'copy'
 
     input:
         set val(sample), file(reads) from read_files_star_fusion
@@ -1105,21 +1108,33 @@ workflow.onComplete {
     }
 
 
+
 	if (workflow.success && params.preserve_work == "no") {
 
 		workflow.workDir.deleteDir()
 
 	}
 
+
     if (workflow.success) {
-        log.info "-${c_purple}[nf-core/rnafusion]${c_green} Pipeline completed successfully${c_reset}-"
-                
+        
+    	
+    	process finalize_on_success {
+    		log.info "-${c_purple}[nf-core/rnafusion]${c_green} Pipeline completed successfully${c_reset}-"
+    		errorStrategy 'ignore'
+			script:
+    		"""
+			cd ${workflow.launchDir}
+			mv  pipeline_running.txt  pipeline_completed.txt
+			touch  pipeline_completed.txt
+    		"""
+
+		}
+    	
     } else {
         checkHostname()
         log.info "-${c_purple}[nf-core/rnafusion]${c_red} Pipeline completed with errors${c_reset}-"
     }
-
-
 
 }
 
